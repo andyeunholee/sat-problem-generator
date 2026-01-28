@@ -297,6 +297,10 @@ with st.sidebar:
     )
     
     st.markdown("---")
+    
+    # PDF to JPG 변환 버튼 (링크 추가)
+    st.link_button("📄 pdf → jpg (group)", "https://pdf-jpg-bundle-app-hmwxbzvsukd3drbjc4nnyp.streamlit.app/", help="PDF를 JPG로 그룹 변환")
+    
     st.markdown("### 📚 System Resources")
     
     # Quick UI Status check
@@ -310,9 +314,13 @@ with st.sidebar:
         else:
             st.caption(f"⚪ {f} not found")
     
-    dsat_count = len(list(current_dir.glob("DSAT*.jpg")))
-    if dsat_count > 0:
-        st.caption(f"📚 {dsat_count} Test Packets detected")
+    dsat_files = sorted(list(current_dir.glob("DSAT*.jpg")))
+    if dsat_files:
+        st.caption(f"📚 {len(dsat_files)} Test Packets detected")
+        # 스크롤 가능한 영역 추가
+        with st.container(height=150):
+            for f in dsat_files:
+                st.caption(f"📄 {f.name}")
 
 # --- Main Content ---
 st.markdown("<h1 class='main-header'>Elite Prep | SAT Analysis & Improvement Plan | SAT Adaptive Practice Questions</h1>", unsafe_allow_html=True)

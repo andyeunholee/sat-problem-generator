@@ -1,0 +1,19 @@
+    # Also convert bare LaTeX commands outside $ delimiters
+    while r'\frac' in text:
+        prev = text
+        text = re.sub(r'\\frac\{([^{}]*)\}\{([^{}]*)\}', r'(\1)/(\2)', text)
+        if text == prev:
+            break
+    
+    bare_replacements = {
+        r'\times': '×', r'\cdot': '·', r'\rightarrow': '→',
+        r'\approx': '≈', r'\leq': '≤', r'\geq': '≥', r'\neq': '≠',
+        r'\pm': '±', r'\div': '÷',
+    }
+    for latex_cmd, symbol in bare_replacements.items():
+        text = text.replace(latex_cmd, symbol)
+    
+    # Convert bare superscripts for export
+    text = text.replace('^2', '²').replace('^3', '³').replace('^1', '¹')
+    
+    return text

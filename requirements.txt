@@ -2,3 +2,5 @@ streamlit==1.40.1
 google-generativeai
 python-dotenv
 python-docx
+matplotlib
+fpdf2==2.8.2

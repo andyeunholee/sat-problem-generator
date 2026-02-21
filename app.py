@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 import json
 import re
+import io
 from dotenv import load_dotenv
+from docx import Document
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # Load environment variables
 load_dotenv()
@@ -172,53 +176,74 @@ def ensure_formatting(text):
     formatted_text = re.sub(pattern, r"\n\n\2 ", text)
     return formatted_text
 
-# Helper: Convert Markdown to Simple HTML for Word
-def convert_markdown_to_html(md_text):
-    if not md_text: return ""
-    html = md_text
+# Helper: Convert Markdown to Word (.docx) document
+def convert_markdown_to_docx(md_text):
+    if not md_text: return None
     
-    # Basic Headers
-    html = re.sub(r'### (.*)', r'<h3>\1</h3>', html)
-    html = re.sub(r'## (.*)', r'<h2>\1</h2>', html)
-    html = re.sub(r'# (.*)', r'<h1>\1</h1>', html)
-    # Bold
-    html = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', html)
-    # Newlines
-    html = html.replace('\n', '<br>')
-    # Horizontal Rule
-    html = html.replace('---', '<hr>')
+    doc = Document()
     
-    # Wrapper for clean Word import + MathJax for LaTeX
-    full_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <script>
-        window.MathJax = {{
-          tex: {{
-            inlineMath: [['$', '$'], ['\\\\(', '\\\\)']]
-          }},
-          svg: {{
-            fontCache: 'global'
-          }}
-        }};
-        </script>
-        <script type="text/javascript" id="MathJax-script" async
-          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
-        </script>
-        <style>
-            body {{ font-family: 'Arial', sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }}
-            h1, h2, h3 {{ color: #0C1E41; }}
-            .question-block {{ margin-bottom: 20px; }}
-        </style>
-    </head>
-    <body>
-        {html}
-    </body>
-    </html>
-    """
-    return full_html
+    # Set default font
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Arial'
+    font.size = Pt(11)
+    font.color.rgb = RGBColor(0x1f, 0x29, 0x37)
+    
+    # Set margins
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+    
+    lines = md_text.split('\n')
+    
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        
+        # Horizontal rule
+        if stripped == '---' or stripped == '--- PAGE BREAK ---':
+            doc.add_paragraph('─' * 50)
+            continue
+        
+        # Headers
+        if stripped.startswith('### '):
+            heading = doc.add_heading(level=3)
+            _add_formatted_text(heading, stripped[4:])
+            continue
+        elif stripped.startswith('## '):
+            heading = doc.add_heading(level=2)
+            _add_formatted_text(heading, stripped[3:])
+            continue
+        elif stripped.startswith('# '):
+            heading = doc.add_heading(level=1)
+            _add_formatted_text(heading, stripped[2:])
+            continue
+        
+        # Regular paragraph with bold support
+        para = doc.add_paragraph()
+        _add_formatted_text(para, stripped)
+    
+    # Save to bytes buffer
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def _add_formatted_text(paragraph, text):
+    """Add text to a paragraph with bold formatting support."""
+    # Split by bold markers **...**
+    parts = re.split(r'(\*\*.*?\*\*)', text)
+    for part in parts:
+        if part.startswith('**') and part.endswith('**'):
+            run = paragraph.add_run(part[2:-2])
+            run.bold = True
+        else:
+            # Handle LaTeX: replace $ delimiters with clean text
+            clean = re.sub(r'\$([^$]+)\$', r'\1', part)
+            paragraph.add_run(clean)
 
 # Helper: Load Local Resources (JPGs)
 def load_local_resources():
@@ -370,10 +395,10 @@ with main_tab1:
                     
                     # Report Prompt
                     prompt = """
-                    You are 'Elite Academy's Senior SAT Consultant.
+                    You are 'Elite Prep's Senior SAT Consultant.
                     
                     **Inputs provided:**
-                    1. **Elite Academy Textbooks & Test Packets** (Context). 
+                    1. **Elite Prep Textbooks & Test Packets** (Context). 
                     2. **Student Diagnostic Test Results** (Target).
                     
                     **TASK:** Create a "SAT Analysis & Improvement Plan" report.
@@ -381,7 +406,7 @@ with main_tab1:
                     **SECTIONS (Output strictly in Markdown):**
                     
                     1.  **Key Weaknesses Analysis**: Detailed breakdown of Reading/Writing and Math gaps.
-                    2.  **Curriculum Mapping**: Map weaknesses to **specific Elite Academy Textbook Chapters**. Create a table.
+                    2.  **Curriculum Mapping**: Map weaknesses to **specific Elite Prep Textbook Chapters**. Create a table.
                     3.  **Action Plan**: Target score, tutoring hours/frequency, weekly schedule.
                     4.  **Vocabulary List**: 50 customized words (numbered list).
                     
@@ -456,7 +481,7 @@ with main_tab1:
                             Create **10 SAT Practice Questions** for the topic: **'{topic}'**.
                             
                             **Style Manual:**
-                            - Browse the provided "Elite Academy Textbooks" and "Test Packets".
+                            - Browse the provided "Elite Prep Textbooks" and "Test Packets".
                             - Mimic the difficulty and style of the questions found there.
                             
                             **CRITICAL FORMATTING:**
@@ -491,7 +516,7 @@ with main_tab1:
                             
                             **Instructions:**
                             - Use LaTeX for match equations.
-                            - Browse the provided "Elite Academy Textbooks" (Math) and "Test Packets".
+                            - Browse the provided "Elite Prep Textbooks" (Math) and "Test Packets".
                             - Mimic the difficulty and style.
                             
                             **CRITICAL FORMATTING:**
@@ -576,7 +601,7 @@ with main_tab2:
                 Create **10 SAT Math Practice Questions** for the topic: **'{selected_math}'**.
                 
                 **INSTRUCTIONS:**
-                - Mimic the exact difficulty and style of the "Elite Academy Textbooks".
+                - Mimic the exact difficulty and style of the "Elite Prep Textbooks".
                 - Use LaTeX for all math equations.
                 
                 **CRITICAL STRUCTURE:**
@@ -603,7 +628,7 @@ with main_tab2:
                     Create **10 SAT English Practice Questions** for the topic: **'{selected_eng}'**.
                     
                     **INSTRUCTIONS:**
-                    - Mimic the exact passage length and question style of the "Elite Academy Textbooks" / DSAT.
+                    - Mimic the exact passage length and question style of the "Elite Prep Textbooks" / DSAT.
                     
                     **CRITICAL STRUCTURE:**
                     1. **Questions 1-10**: List the questions clearly.
@@ -631,13 +656,14 @@ with main_tab2:
             st.markdown("### 📝 Generated Practice Set")
         with r_col2:
             # Download Button for Word
-            html_data = convert_markdown_to_html(st.session_state.manual_practice_result)
-            st.download_button(
-                label="💾 Download for HTML",
-                data=html_data,
-                file_name="Elite_Practice_Set.html",
-                mime="text/html"
-            )
+            docx_data = convert_markdown_to_docx(st.session_state.manual_practice_result)
+            if docx_data:
+                st.download_button(
+                    label="📄 Download for Word",
+                    data=docx_data,
+                    file_name="Elite_Practice_Set.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
 
         st.markdown(st.session_state.manual_practice_result)
         

@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import re
 import io
+import random
 from dotenv import load_dotenv
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
@@ -109,7 +110,7 @@ def upload_to_gemini(path, mime_type=None):
         return None
 
 # Helper: Load Gemini Model
-def get_gemini_response(input_prompt, content_parts):
+def get_gemini_response(input_prompt, content_parts, temperature=0.2):
     try:
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -127,7 +128,7 @@ def get_gemini_response(input_prompt, content_parts):
         full_payload = [input_prompt] + content_parts
         
         generation_config = genai.types.GenerationConfig(
-            temperature=0.2,
+            temperature=temperature,
             max_output_tokens=8192,
         )
 
@@ -477,8 +478,17 @@ with main_tab1:
                         with st.spinner(f"Generating 10 questions for {topic}..."):
                             res_status, context_parts, _ = load_local_resources()
                             
+                            variation_id = random.randint(1000, 9999)
                             practice_prompt = f"""
                             Create **10 SAT Practice Questions** for the topic: **'{topic}'**.
+                            
+                            **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
+                            
+                            **DIVERSITY RULES (CRITICAL):**
+                            - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
+                            - Use DIFFERENT numbers, scenarios, contexts, and sentence structures each time.
+                            - Vary difficulty: include 3 easy, 4 medium, 3 hard questions.
+                            - Do NOT reuse question stems, numerical values, or answer patterns from previous generations.
                             
                             **Style Manual:**
                             - Browse the provided "Elite Prep Textbooks" and "Test Packets".
@@ -497,7 +507,7 @@ with main_tab1:
                             
                             Output in Markdown.
                             """
-                            q_response = get_gemini_response(practice_prompt, context_parts)
+                            q_response = get_gemini_response(practice_prompt, context_parts, temperature=0.85)
                             if q_response:
                                 st.session_state.practice_result = f"### 📘 Practice Set: {topic}\n\n" + q_response
             
@@ -511,11 +521,21 @@ with main_tab1:
                          with st.spinner(f"Generating 10 questions for {topic}..."):
                             res_status, context_parts, _ = load_local_resources()
                             
+                            variation_id = random.randint(1000, 9999)
                             practice_prompt = f"""
                             Create **10 SAT Math Practice Questions** for the topic: **'{topic}'**.
                             
+                            **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
+                            
+                            **DIVERSITY RULES (CRITICAL):**
+                            - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
+                            - Use DIFFERENT numbers, coefficients, and constants than typical examples.
+                            - Mix word problems, pure algebra, graph-based, and real-world application scenarios.
+                            - Vary difficulty: include 3 easy, 4 medium, 3 hard questions.
+                            - Do NOT reuse question stems, numerical values, or answer patterns from previous generations.
+                            
                             **Instructions:**
-                            - Use LaTeX for match equations.
+                            - Use LaTeX for math equations.
                             - Browse the provided "Elite Prep Textbooks" (Math) and "Test Packets".
                             - Mimic the difficulty and style.
                             
@@ -532,7 +552,7 @@ with main_tab1:
                             
                             Output in Markdown.
                             """
-                            q_response = get_gemini_response(practice_prompt, context_parts)
+                            q_response = get_gemini_response(practice_prompt, context_parts, temperature=0.85)
                             if q_response:
                                 st.session_state.practice_result = f"### 📐 Practice Set: {topic}\n\n" + q_response
 
@@ -597,8 +617,18 @@ with main_tab2:
         if st.button("Generate Math Questions", disabled=(selected_math=="-- Select --")):
             with st.spinner(f"Generating 10 Math Questions for {selected_math}..."):
                 res_status, context_parts, _ = load_local_resources()
+                variation_id = random.randint(1000, 9999)
                 prompt = f"""
                 Create **10 SAT Math Practice Questions** for the topic: **'{selected_math}'**.
+                
+                **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
+                
+                **DIVERSITY RULES (CRITICAL):**
+                - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
+                - Use DIFFERENT numbers, coefficients, and constants than typical textbook examples.
+                - Mix word problems, pure algebra, graph-based, and real-world application scenarios.
+                - Vary difficulty: include 3 easy, 4 medium, 3 hard questions.
+                - Do NOT repeat question patterns from any previous generation.
                 
                 **INSTRUCTIONS:**
                 - Mimic the exact difficulty and style of the "Elite Prep Textbooks".
@@ -613,7 +643,7 @@ with main_tab2:
                 
                 Output in clean Markdown.
                 """
-                res = get_gemini_response(prompt, context_parts)
+                res = get_gemini_response(prompt, context_parts, temperature=0.85)
                 if res:
                     st.session_state.manual_practice_result = f"### 📐 Manual Set: {selected_math}\n\n" + res
     
@@ -624,8 +654,18 @@ with main_tab2:
         if st.button("Generate English Questions", disabled=(selected_eng=="-- Select --")):
                 with st.spinner(f"Generating 10 English Questions for {selected_eng}..."):
                     res_status, context_parts, _ = load_local_resources()
+                    variation_id = random.randint(1000, 9999)
                     prompt = f"""
                     Create **10 SAT English Practice Questions** for the topic: **'{selected_eng}'**.
+                    
+                    **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
+                    
+                    **DIVERSITY RULES (CRITICAL):**
+                    - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
+                    - Use DIFFERENT passage topics, genres, and writing styles (science, humanities, social science, literature).
+                    - Vary sentence complexity and vocabulary level across questions.
+                    - Vary difficulty: include 3 easy, 4 medium, 3 hard questions.
+                    - Do NOT repeat passage themes or question patterns from any previous generation.
                     
                     **INSTRUCTIONS:**
                     - Mimic the exact passage length and question style of the "Elite Prep Textbooks" / DSAT.
@@ -639,7 +679,7 @@ with main_tab2:
                     
                     Output in clean Markdown.
                     """
-                    res = get_gemini_response(prompt, context_parts)
+                    res = get_gemini_response(prompt, context_parts, temperature=0.85)
                     if res:
                         st.session_state.manual_practice_result = f"### 📘 Manual Set: {selected_eng}\n\n" + res
 

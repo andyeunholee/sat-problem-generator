@@ -137,17 +137,20 @@ def get_gemini_response(input_prompt, content_parts, temperature=0.2):
         
         genai.configure(api_key=api_key)
         
-        # Using Gemini 3.0 Pro Preview as requested
-        model = genai.GenerativeModel('gemini-3-pro-preview')
-        
+        model = genai.GenerativeModel('gemini-2.5-pro')
+
         full_payload = [input_prompt] + content_parts
-        
+
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
             max_output_tokens=8192,
         )
 
-        response = model.generate_content(full_payload, generation_config=generation_config)
+        response = model.generate_content(
+            full_payload,
+            generation_config=generation_config,
+            request_options={"timeout": 300},
+        )
         
         # Safe access to text
         try:
@@ -179,6 +182,16 @@ def extract_json_topics(text):
     except Exception as e:
         print(f"JSON Parse Error: {e}")
     return None
+
+# Helper: Add colored difficulty badges to rendered output
+def add_difficulty_badges(text):
+    """Replace [Easy], [Medium], [Hard] tags with colored HTML badge spans."""
+    if not text:
+        return text
+    text = text.replace('[Easy]',   '<span style="background:#22c55e;color:white;padding:2px 9px;border-radius:12px;font-size:0.78em;font-weight:700;margin-right:5px">Easy</span>')
+    text = text.replace('[Medium]', '<span style="background:#f59e0b;color:white;padding:2px 9px;border-radius:12px;font-size:0.78em;font-weight:700;margin-right:5px">Medium</span>')
+    text = text.replace('[Hard]',   '<span style="background:#ef4444;color:white;padding:2px 9px;border-radius:12px;font-size:0.78em;font-weight:700;margin-right:5px">Hard</span>')
+    return text
 
 # Helper: Force Formatting for Options
 def ensure_formatting(text):
@@ -798,37 +811,65 @@ if not st.session_state.all_topics:
         "English": english_topics
     }
 
-# 2. Selection & Generation
+# 2. Difficulty Selector
+st.markdown("---")
+st.markdown("#### Difficulty Distribution")
+st.markdown("Set how many questions to generate per difficulty level.")
+
+diff_col1, diff_col2, diff_col3, diff_col4 = st.columns([2, 1, 1, 1])
+with diff_col1:
+    st.markdown(" ")  # spacer label
+with diff_col2:
+    easy_count = st.number_input("🟢 Easy", min_value=0, max_value=20, value=3, step=1, key="easy_count")
+with diff_col3:
+    med_count  = st.number_input("🟡 Medium", min_value=0, max_value=20, value=4, step=1, key="med_count")
+with diff_col4:
+    hard_count = st.number_input("🔴 Hard", min_value=0, max_value=20, value=3, step=1, key="hard_count")
+
+total_count = easy_count + med_count + hard_count
+if total_count == 0:
+    st.warning("Please set at least 1 question in any difficulty level.")
+else:
+    st.info(f"Total: **{total_count} questions** — 🟢 {easy_count} Easy  |  🟡 {med_count} Medium  |  🔴 {hard_count} Hard")
+
+st.markdown("---")
+
+# 3. Selection & Generation
 col_m, col_e = st.columns(2)
 
 with col_m:
     st.subheader("📐 Math Topics")
     math_list = st.session_state.all_topics.get("Math", math_topics) # Fallback to hardcoded
     selected_math = st.selectbox("Select Math Topic", ["-- Select --"] + math_list)
-    if st.button("Generate Math Questions", disabled=(selected_math=="-- Select --")):
-        with st.spinner(f"Generating 10 Math Questions for {selected_math}..."):
+    if st.button("Generate Math Questions", disabled=(selected_math=="-- Select --" or total_count == 0)):
+        with st.spinner(f"Generating {total_count} Math Questions for {selected_math}..."):
             res_status, context_parts, _ = load_local_resources()
             variation_id = random.randint(1000, 9999)
             prompt = f"""
-            Create **10 SAT Math Practice Questions** for the topic: **'{selected_math}'**.
-            
+            Create **{total_count} SAT Math Practice Questions** for the topic: **'{selected_math}'**.
+
             **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
-            
+
+            **DIFFICULTY DISTRIBUTION (CRITICAL — MUST FOLLOW EXACTLY):**
+            - Generate EXACTLY {easy_count} [Easy] questions, {med_count} [Medium] questions, and {hard_count} [Hard] questions.
+            - Every single question MUST begin with its difficulty label in brackets: [Easy], [Medium], or [Hard].
+            - Format MUST be: **[Easy] 1.** Question text... or **[Medium] 2.** Question text...
+            - Do NOT skip or omit the difficulty label on any question.
+
             **DIVERSITY RULES (CRITICAL):**
             - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
             - Use DIFFERENT numbers, coefficients, and constants than typical textbook examples.
             - Mix word problems, pure algebra, graph-based, and real-world application scenarios.
-            - Vary difficulty: include 3 easy, 4 medium, 3 hard questions.
             - Do NOT repeat question patterns from any previous generation.
-            
+
             **LANGUAGE RULES:**
             - Output MUST be 100% in English.
             - Do NOT use any Korean characters (Hangul).
-            
+
             **INSTRUCTIONS:**
             - Mimic the exact difficulty and style of the "Elite Prep Textbooks".
             - Use LaTeX for all math equations.
-            
+
             **FIGURE/GRAPH INSTRUCTIONS (CRITICAL - MUST INCLUDE):**
             - Include **2-3 questions** that require a graph, chart, or geometric figure.
             - For each figure, provide matplotlib Python code inside a ```python-figure block.
@@ -838,14 +879,15 @@ with col_m:
             - Reference the figure: "The figure above shows..." or "Based on the graph above..."
             - Graph types: coordinate planes with lines/curves, scatter plots, bar charts, geometric shapes (triangles, circles, rectangles with labeled dimensions), function graphs.
             - Make figures clean, labeled, with grid lines where appropriate.
-            
+
             **CRITICAL STRUCTURE:**
-            1. **Questions 1-10**: List the questions clearly.
+            1. **Questions 1-{total_count}**: List the questions clearly.
+               - EVERY question MUST start with its difficulty tag: **[Easy] 1.** / **[Medium] 2.** / **[Hard] 3.**
                - **Multiple Choice**: Put each option (A, B, C, D) on a NEW LINE.
             2. **--- PAGE BREAK ---**
             3. **Answer Key & Explanations**: You MUST provide this section at the very end.
-               - Format: "1. A - Explanation..."
-            
+               - Format: "1. [Easy] A - Explanation..."
+
             Output in clean Markdown.
             """
             res = get_gemini_response(prompt, context_parts, temperature=0.85)
@@ -856,29 +898,34 @@ with col_e:
     st.subheader("📘 English Topics")
     eng_list = st.session_state.all_topics.get("English", english_topics) # Fallback to hardcoded
     selected_eng = st.selectbox("Select English Topic", ["-- Select --"] + eng_list)
-    if st.button("Generate English Questions", disabled=(selected_eng=="-- Select --")):
-            with st.spinner(f"Generating 10 English Questions for {selected_eng}..."):
+    if st.button("Generate English Questions", disabled=(selected_eng=="-- Select --" or total_count == 0)):
+            with st.spinner(f"Generating {total_count} English Questions for {selected_eng}..."):
                 res_status, context_parts, _ = load_local_resources()
                 variation_id = random.randint(1000, 9999)
                 prompt = f"""
-                Create **10 SAT English Practice Questions** for the topic: **'{selected_eng}'**.
-                
+                Create **{total_count} SAT English Practice Questions** for the topic: **'{selected_eng}'**.
+
                 **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
-                
+
+                **DIFFICULTY DISTRIBUTION (CRITICAL — MUST FOLLOW EXACTLY):**
+                - Generate EXACTLY {easy_count} [Easy] questions, {med_count} [Medium] questions, and {hard_count} [Hard] questions.
+                - Every single question MUST begin with its difficulty label in brackets: [Easy], [Medium], or [Hard].
+                - Format MUST be: **[Easy] 1.** Question text... or **[Medium] 2.** Question text...
+                - Do NOT skip or omit the difficulty label on any question.
+
                 **DIVERSITY RULES (CRITICAL):**
                 - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
                 - Use DIFFERENT passage topics, genres, and writing styles (science, humanities, social science, literature).
                 - Vary sentence complexity and vocabulary level across questions.
-                - Vary difficulty: include 3 easy, 4 medium, 3 hard questions.
                 - Do NOT repeat passage themes or question patterns from any previous generation.
-                
+
                 **LANGUAGE RULES:**
                 - Output MUST be 100% in English.
                 - Do NOT use any Korean characters (Hangul).
-                
+
                 **INSTRUCTIONS:**
                 - Mimic the exact passage length and question style of the "Elite Prep Textbooks" / DSAT.
-                
+
                 **FIGURE/GRAPH INSTRUCTIONS:**
                 - If the topic involves data interpretation or informational graphics, include 2-3 questions with figures.
                 - For each figure, provide matplotlib Python code inside a ```python-figure block.
@@ -887,14 +934,15 @@ with col_e:
                 - Place the ```python-figure block IMMEDIATELY BEFORE the question that uses it.
                 - Reference it: "Based on the figure above..." or "The graph above shows..."
                 - Supported types: bar charts, line graphs, pie charts, scatter plots, data tables as charts.
-                
+
                 **CRITICAL STRUCTURE:**
-                1. **Questions 1-10**: List the questions clearly.
+                1. **Questions 1-{total_count}**: List the questions clearly.
+                   - EVERY question MUST start with its difficulty tag: **[Easy] 1.** / **[Medium] 2.** / **[Hard] 3.**
                    - **Multiple Choice**: Put each option (A, B, C, D) on a NEW LINE.
                 2. **--- PAGE BREAK ---**
                 3. **Answer Key & Explanations**: You MUST provide this section at the very end.
-                   - Format: "1. A - Explanation..."
-                
+                   - Format: "1. [Easy] A - Explanation..."
+
                 Output in clean Markdown.
                 """
                 res = get_gemini_response(prompt, context_parts, temperature=0.85)
@@ -925,11 +973,12 @@ if st.session_state.manual_practice_result:
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 
-    # Render with figure support
+    # Render with figure support + difficulty badges
     segments = parse_response_with_figures(st.session_state.manual_practice_result)
     for seg in segments:
         if seg["type"] == "text":
-            st.markdown(seg["content"])
+            content = add_difficulty_badges(seg["content"])
+            st.markdown(content, unsafe_allow_html=True)
         elif seg["type"] == "figure":
             st.image(seg["image"], use_container_width=True)
     

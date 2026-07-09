@@ -215,6 +215,51 @@ def add_difficulty_badges(text):
     text = text.replace('[Hard]',   '<span style="background:#ef4444;color:white;padding:2px 9px;border-radius:12px;font-size:0.78em;font-weight:700;margin-right:5px">Hard</span>')
     return text
 
+# Helper: Decide if a $...$ span is really math or just prose the model
+# wrongly wrapped in math delimiters.
+def _is_prose_span(content):
+    # Remove \text{...} blocks and \commands (frac, cap, sqrt, ...) — these are
+    # legitimate math and should not count as English words.
+    stripped = re.sub(r'\\text\{[^}]*\}', ' ', content)
+    stripped = re.sub(r'\\[a-zA-Z]+', ' ', stripped)
+    # Real inline math almost never has 2+ multi-letter English words left.
+    words = re.findall(r'[A-Za-z]{2,}', stripped)
+    return len(words) >= 2
+
+# Helper: Safety net for malformed LaTeX coming from the model.
+# The model sometimes (a) leaves an unbalanced $ or (b) wraps whole English
+# sentences in $...$. Both break Streamlit's KaTeX rendering (text runs
+# together in math italics). This normalizes the text so it always renders
+# readably, even if a formula occasionally shows as raw LaTeX.
+def sanitize_math_delimiters(text):
+    if not text:
+        return text
+    out_lines = []
+    for line in text.split('\n'):
+        # Leave display math ($$...$$) and lines without $ untouched.
+        if '$$' in line:
+            out_lines.append(line)
+            continue
+        positions = [m.start() for m in re.finditer(r'(?<!\\)\$', line)]
+        if not positions:
+            out_lines.append(line)
+            continue
+        if len(positions) % 2 != 0:
+            # Unbalanced $ on this line -> neutralize all so it renders as text.
+            out_lines.append(line.replace('$', r'\$'))
+            continue
+        # Balanced: unwrap any pair whose content is actually prose.
+        remove_idx = set()
+        for k in range(0, len(positions), 2):
+            start, end = positions[k], positions[k + 1]
+            if _is_prose_span(line[start + 1:end]):
+                remove_idx.add(start)
+                remove_idx.add(end)
+        if remove_idx:
+            line = ''.join(ch for i, ch in enumerate(line) if i not in remove_idx)
+        out_lines.append(line)
+    return '\n'.join(out_lines)
+
 # Helper: Force Formatting for Options
 def ensure_formatting(text):
     if not text: return ""
@@ -1013,7 +1058,8 @@ if st.session_state.manual_practice_result:
     segments = parse_response_with_figures(st.session_state.manual_practice_result)
     for seg in segments:
         if seg["type"] == "text":
-            content = add_difficulty_badges(seg["content"])
+            content = sanitize_math_delimiters(seg["content"])
+            content = add_difficulty_badges(content)
             st.markdown(content, unsafe_allow_html=True)
         elif seg["type"] == "figure":
             st.image(seg["image"], use_container_width=True)

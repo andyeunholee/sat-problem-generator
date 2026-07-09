@@ -287,14 +287,14 @@ def execute_figure_code(code_str):
             # Replace plt.show() with savefig
             if stripped == 'plt.show()':
                 continue
+            # Drop the model's own savefig — we save ourselves after fixing the
+            # legend, so the saved image never has an overlapping legend.
+            if 'savefig' in stripped:
+                continue
             cleaned_lines.append(line)
-        
+
         cleaned_code = '\n'.join(cleaned_lines)
-        
-        # If no savefig call exists, append one
-        if 'savefig' not in cleaned_code:
-            cleaned_code += "\nplt.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')"
-        
+
         # Create a BytesIO buffer for the image
         buf = io.BytesIO()
         
@@ -312,14 +312,23 @@ def execute_figure_code(code_str):
         
         # Execute the code
         exec(cleaned_code, exec_namespace)
-        
-        # If buf is still empty, try to save current figure
-        if buf.tell() == 0:
-            fig = plt.gcf()
-            if fig.get_axes():
-                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight',
-                           facecolor='white', edgecolor='none')
-        
+
+        # Move any legend outside the plot area so it never overlaps the data,
+        # then save the figure ourselves (the model's savefig was stripped).
+        fig = plt.gcf()
+        if fig.get_axes():
+            for ax in fig.get_axes():
+                if ax.get_legend() is not None:
+                    handles, labels = ax.get_legend_handles_labels()
+                    if handles:
+                        ax.legend(
+                            handles, labels,
+                            loc='upper left', bbox_to_anchor=(1.02, 1.0),
+                            borderaxespad=0.0, fontsize=9, framealpha=0.95,
+                        )
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight',
+                        facecolor='white', edgecolor='none')
+
         buf.seek(0)
         img_bytes = buf.getvalue()
         plt.close('all')

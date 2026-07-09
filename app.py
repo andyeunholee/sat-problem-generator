@@ -10,8 +10,11 @@ import random
 import base64
 from dotenv import load_dotenv
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Inches, RGBColor, Twips
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
@@ -125,6 +128,31 @@ def upload_to_gemini(path, mime_type=None):
         print(f"Error uploading {path}: {e}")
         return None
 
+# Candidate models tried in order. "-latest" aliases always point to a live
+# model, so they keep working even when a pinned version (e.g. gemini-2.5-pro)
+# is retired for a given API key. The pinned names are kept as extra fallbacks
+# for keys/projects that only expose those.
+GEMINI_MODEL_CANDIDATES = [
+    'gemini-flash-latest',
+    'gemini-pro-latest',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+]
+
+
+def _is_model_unavailable_error(msg):
+    """True when the error means 'this model name can't be used with this key'."""
+    m = msg.lower()
+    return (
+        '404' in msg
+        or 'not found' in m
+        or 'no longer available' in m
+        or 'is not available' in m
+        or 'not supported' in m
+        or 'does not exist' in m
+    )
+
+
 # Helper: Load Gemini Model
 def get_gemini_response(input_prompt, content_parts, temperature=0.2):
     try:
@@ -135,10 +163,8 @@ def get_gemini_response(input_prompt, content_parts, temperature=0.2):
             else:
                 st.error("Google API Key not found.")
                 return None
-        
-        genai.configure(api_key=api_key)
 
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        genai.configure(api_key=api_key)
 
         full_payload = [input_prompt] + content_parts
 
@@ -147,44 +173,70 @@ def get_gemini_response(input_prompt, content_parts, temperature=0.2):
             max_output_tokens=32768,
         )
 
-        # Retry on transient errors (e.g. 504 timeout / 503 overloaded).
-        # These are usually temporary, so we automatically retry a few times
-        # instead of forcing the user to press the button again.
-        max_retries = 3
-        last_error = None
-        for attempt in range(max_retries):
-            try:
-                response = model.generate_content(
-                    full_payload,
-                    generation_config=generation_config,
-                    request_options={"timeout": 600},
-                )
+        # Try a model that already worked this session first, then the rest.
+        candidates = list(GEMINI_MODEL_CANDIDATES)
+        remembered = st.session_state.get('working_model')
+        if remembered and remembered in candidates:
+            candidates.remove(remembered)
+            candidates.insert(0, remembered)
 
-                # Safe access to text
+        unavailable = []
+        for model_name in candidates:
+            model = genai.GenerativeModel(model_name)
+
+            # Retry on transient errors (e.g. 504 timeout / 503 overloaded).
+            # These are usually temporary, so we automatically retry a few times
+            # instead of forcing the user to press the button again.
+            max_retries = 3
+            skip_to_next_model = False
+            for attempt in range(max_retries):
                 try:
-                    return response.text
-                except ValueError:
-                    # Handle cases where response is blocked or empty
-                    finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
-                    st.error(f"Generation stopped. Finish Reason: {finish_reason}")
-                    # If MAX_TOKENS (2), try to return what we have
-                    if finish_reason == 2 and response.candidates and response.candidates[0].content.parts:
-                        return response.candidates[0].content.parts[0].text
-                    return None
-            except Exception as e:
-                last_error = e
-                msg = str(e)
-                # Only retry transient/timeout errors; fail fast on others.
-                is_transient = any(code in msg for code in ("504", "503", "500", "timed out", "timeout", "deadline"))
-                if is_transient and attempt < max_retries - 1:
-                    wait = 3 * (attempt + 1)
-                    st.warning(f"⏳ Request timed out (attempt {attempt + 1}/{max_retries}). Retrying in {wait}s...")
-                    time.sleep(wait)
-                    continue
-                raise
+                    response = model.generate_content(
+                        full_payload,
+                        generation_config=generation_config,
+                        request_options={"timeout": 600},
+                    )
 
-        # All retries exhausted
-        raise last_error
+                    # Safe access to text
+                    try:
+                        text = response.text
+                        st.session_state['working_model'] = model_name
+                        return text
+                    except ValueError:
+                        # Handle cases where response is blocked or empty
+                        finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
+                        st.error(f"Generation stopped. Finish Reason: {finish_reason}")
+                        # If MAX_TOKENS (2), try to return what we have
+                        if finish_reason == 2 and response.candidates and response.candidates[0].content.parts:
+                            st.session_state['working_model'] = model_name
+                            return response.candidates[0].content.parts[0].text
+                        return None
+                except Exception as e:
+                    msg = str(e)
+                    # Model not usable with this key -> fall back to the next one.
+                    if _is_model_unavailable_error(msg):
+                        unavailable.append(model_name)
+                        skip_to_next_model = True
+                        break
+                    # Only retry transient/timeout errors; fail fast on others.
+                    is_transient = any(code in msg for code in ("504", "503", "500", "timed out", "timeout", "deadline"))
+                    if is_transient and attempt < max_retries - 1:
+                        wait = 3 * (attempt + 1)
+                        st.warning(f"⏳ Request timed out (attempt {attempt + 1}/{max_retries}). Retrying in {wait}s...")
+                        time.sleep(wait)
+                        continue
+                    # Non-transient, non-availability error -> genuine failure.
+                    raise
+
+            if skip_to_next_model:
+                continue
+
+        # Every candidate model was unavailable for this key.
+        raise RuntimeError(
+            "None of the configured Gemini models are available for this API key "
+            f"(tried: {', '.join(candidates)}). The models may have been retired — "
+            "update GEMINI_MODEL_CANDIDATES in app.py."
+        )
     except Exception as e:
         st.error(f"Error calling Gemini API: {str(e)}")
         return None
@@ -404,6 +456,10 @@ def _latex_to_readable(text):
             r'\times': '×', r'\div': '÷', r'\pm': '±',
             r'\leq': '≤', r'\geq': '≥', r'\neq': '≠',
             r'\rightarrow': '→', r'\leftarrow': '←',
+            # Drop \left / \right sizing commands (must come AFTER the arrow
+            # replacements above, since \left/\right are prefixes of
+            # \leftarrow/\rightarrow, and BEFORE the \le/\ge rules below).
+            r'\left': '', r'\right': '',
             r'\cdot': '·', r'\approx': '≈', r'\infty': '∞',
             r'\pi': 'π', r'\theta': 'θ', r'\alpha': 'α', r'\beta': 'β',
             r'\sqrt': '√', r'\le': '≤', r'\ge': '≥',
@@ -443,6 +499,7 @@ def _latex_to_readable(text):
     
     bare_replacements = {
         r'\times': '×', r'\cdot': '·', r'\rightarrow': '→',
+        r'\left': '', r'\right': '',
         r'\approx': '≈', r'\leq': '≤', r'\geq': '≥', r'\neq': '≠',
         r'\pm': '±', r'\div': '÷',
     }
@@ -456,10 +513,612 @@ def _latex_to_readable(text):
     
     return text
 
+# ---------------------------------------------------------------------------
+# Elite Prep styled Word export (matches sample-word-file.docx)
+# ---------------------------------------------------------------------------
+
+# Brand palette (hex, no leading #)
+_ELITE_NAVY   = '14315B'   # dark navy header background
+_ELITE_LIGHT  = 'F2F5FA'   # light panel background
+_ELITE_BORDER = 'D7E0EC'   # subtle card border
+_ELITE_OPTION = '1E4E86'   # option letter blue
+_ELITE_ANSWER = '2E6DB4'   # answer letter blue
+_BADGE = {
+    'EASY':   {'fill': '2E6DB4', 'text': 'FFFFFF'},
+    'MEDIUM': {'fill': 'FFCE3A', 'text': '14315B'},
+    'HARD':   {'fill': 'E74C3C', 'text': 'FFFFFF'},
+}
+_CARD_WIDTH  = 10360   # twips (~7.19")
+_BADGE_COL   = 1100    # twips (~0.76")
+_BODY_COL    = 9260    # twips (~6.43")
+
+
+def _shade_cell(cell, fill_hex):
+    """Apply a solid background fill to a table cell."""
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), fill_hex)
+    tcPr.append(shd)
+
+
+def _row_cant_split(row):
+    """Prevent a table row from breaking across a page boundary."""
+    trPr = row._tr.get_or_add_trPr()
+    if trPr.find(qn('w:cantSplit')) is None:
+        trPr.append(OxmlElement('w:cantSplit'))
+
+
+def _keep_with_next(paragraph):
+    """Keep this paragraph on the same page as the following content."""
+    paragraph.paragraph_format.keep_with_next = True
+
+
+def _table_borders(table, color=_ELITE_BORDER, show=True):
+    """Set uniform borders (or remove them) on a table."""
+    tblPr = table._tbl.tblPr
+    existing = tblPr.find(qn('w:tblBorders'))
+    if existing is not None:
+        tblPr.remove(existing)
+    borders = OxmlElement('w:tblBorders')
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        el = OxmlElement(f'w:{edge}')
+        if show:
+            el.set(qn('w:val'), 'single')
+            el.set(qn('w:sz'), '4')
+            el.set(qn('w:space'), '0')
+            el.set(qn('w:color'), color)
+        else:
+            el.set(qn('w:val'), 'none')
+            el.set(qn('w:sz'), '0')
+            el.set(qn('w:color'), 'auto')
+        borders.append(el)
+    tblPr.append(borders)
+
+
+def _fixed_layout(table, widths_twips):
+    """Force a fixed-width table layout with the given column widths (twips)."""
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    # table width
+    old_w = tblPr.find(qn('w:tblW'))
+    if old_w is not None:
+        tblPr.remove(old_w)
+    tblW = OxmlElement('w:tblW')
+    tblW.set(qn('w:type'), 'dxa')
+    tblW.set(qn('w:w'), str(sum(widths_twips)))
+    tblPr.append(tblW)
+    # fixed layout
+    old_layout = tblPr.find(qn('w:tblLayout'))
+    if old_layout is not None:
+        tblPr.remove(old_layout)
+    layout = OxmlElement('w:tblLayout')
+    layout.set(qn('w:type'), 'fixed')
+    tblPr.append(layout)
+    # grid columns
+    old_grid = tbl.find(qn('w:tblGrid'))
+    if old_grid is not None:
+        tbl.remove(old_grid)
+    grid = OxmlElement('w:tblGrid')
+    for w in widths_twips:
+        gc = OxmlElement('w:gridCol')
+        gc.set(qn('w:w'), str(w))
+        grid.append(gc)
+    tblPr.addnext(grid)
+
+
+def _apply_size(paragraph, pt):
+    """Force a font size (pt) on every run already in the paragraph."""
+    for r in paragraph.runs:
+        r.font.size = Pt(pt)
+
+
+def _spacer(doc, after_pt=6):
+    """Add a thin empty paragraph so consecutive tables stay separate."""
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(after_pt)
+    run = p.add_run('')
+    run.font.size = Pt(4)
+    return p
+
+
+def _split_inline_choices(text):
+    """
+    Split run-on options out of a question stem when the model failed to put
+    them on separate lines, e.g.:
+        "If x = 2, what is y? (A) 8.4 (B) 9.6 (C) 11.6 (D) 12.4"
+    Returns (stem, [(letter, choice), ...]) or (text, []) if no clean
+    sequential A/B/C/D run of options is found.
+    """
+    if not text:
+        return text, []
+    # locate the first "A)" or "(A)" that begins the option run
+    m = re.search(r'\(?\bA\)', text)
+    if not m:
+        return text, []
+    stem = text[:m.start()].strip().rstrip(':').strip()
+    rest = text[m.start():]
+    # split on each "(X)" / "X)" marker, keeping the letter
+    parts = re.split(r'\(?([A-D])\)\s*', rest)
+    # parts -> ['', 'A', '8.4 ', 'B', '9.6 ', 'C', '11.6 ', 'D', '12.4']
+    pairs = []
+    tokens = parts[1:]
+    for i in range(0, len(tokens) - 1, 2):
+        letter = tokens[i].upper()
+        value = tokens[i + 1].strip()
+        pairs.append((letter, value))
+    # require a clean sequential run starting at A (at least A and B)
+    letters = [p[0] for p in pairs]
+    expected = ['A', 'B', 'C', 'D'][:len(letters)]
+    if len(pairs) >= 2 and letters == expected and all(v for _, v in pairs):
+        return stem, pairs
+    return text, []
+
+
+def _parse_practice_markdown(md_text):
+    """
+    Parse the generated practice-set markdown into structured data.
+    Returns dict {meta, questions, answers} or None if it can't be parsed
+    into at least one question.
+    """
+    if not md_text:
+        return None
+
+    lines = md_text.split('\n')
+
+    # --- Title / subject ------------------------------------------------
+    subject = 'MATH'
+    title = 'Practice Set'
+    for ln in lines:
+        s = ln.strip()
+        m = re.match(r'^#{1,6}\s*(.*)', s)
+        if m and 'Manual Set' in m.group(1):
+            raw = m.group(1)
+            if '📘' in raw or 'English' in raw:
+                subject = 'ENGLISH'
+            elif '📐' in raw or 'Math' in raw:
+                subject = 'MATH'
+            after = raw.split('Manual Set:', 1)[-1].strip()
+            after = clean_text_for_export(after).strip(' :—-')
+            if after:
+                title = after
+            break
+
+    # --- Split questions vs answer key ---------------------------------
+    split_idx = len(lines)
+    for idx, ln in enumerate(lines):
+        s = ln.strip().lstrip('#').strip()
+        s_clean = re.sub(r'[^A-Za-z ]', '', s).strip().lower()
+        if s_clean.startswith('answer key') or 'answer key' in s_clean:
+            split_idx = idx
+            break
+        if s.strip() in ('--- PAGE BREAK ---', 'PAGE BREAK'):
+            # answer key usually follows the page break
+            split_idx = idx
+            break
+
+    q_lines = lines[:split_idx]
+    a_lines = lines[split_idx:]
+
+    # --- Parse questions -----------------------------------------------
+    q_start = re.compile(
+        r'^\**\s*\[?(Easy|Medium|Hard)\]?\s*\.?\s*(\d+)[.)]\s*\**\s*(.*)$',
+        re.IGNORECASE,
+    )
+    opt_re = re.compile(r'^\**([A-D])\**[).]\s*(.*)$')
+
+    questions = []
+    cur = None
+    pending_figure = None
+    in_code = False
+    code_lang = ''
+    code_buf = []
+
+    def close_question():
+        nonlocal cur
+        if cur is not None:
+            cur['text'] = cur['text'].strip()
+            # If the model kept the options inline (e.g. "... ? (A) 8 (B) 9 ...")
+            # instead of on separate lines, split them out now.
+            if not cur['choices']:
+                stem, inline = _split_inline_choices(cur['text'])
+                if inline:
+                    cur['text'] = stem
+                    cur['choices'] = inline
+            questions.append(cur)
+            cur = None
+
+    for ln in q_lines:
+        s = ln.strip()
+
+        # code / figure blocks
+        if s.startswith('```'):
+            if not in_code:
+                in_code = True
+                code_lang = s[3:].strip().lower()
+                code_buf = []
+            else:
+                in_code = False
+                if code_lang in ('python-figure', 'python'):
+                    img = execute_figure_code('\n'.join(code_buf))
+                    if img:
+                        # Per the prompt, a figure is placed IMMEDIATELY BEFORE
+                        # the question that references it, so hand it to the next
+                        # question that starts rather than the current one.
+                        pending_figure = img
+                code_buf = []
+                code_lang = ''
+            continue
+        if in_code:
+            code_buf.append(ln.rstrip())
+            continue
+
+        if not s:
+            continue
+        # skip stray markers / section headings inside question area
+        if s in ('---', '--- PAGE BREAK ---') or s.startswith('─'):
+            continue
+
+        qm = q_start.match(s)
+        if qm:
+            close_question()
+            cur = {
+                'difficulty': qm.group(1).upper(),
+                'num': int(qm.group(2)),
+                'text': qm.group(3).strip(),
+                'choices': [],
+                'figure': pending_figure,
+            }
+            pending_figure = None
+            continue
+
+        if cur is None:
+            # heading line before first question (e.g. the "### Manual Set" title)
+            continue
+
+        om = opt_re.match(s)
+        if om:
+            cur['choices'].append((om.group(1).upper(), om.group(2).strip()))
+            continue
+
+        # continuation of question text (only if no options captured yet)
+        if not cur['choices']:
+            cur['text'] = (cur['text'] + ' ' + s).strip()
+        else:
+            # trailing prose after the options -> append to last choice
+            letter, txt = cur['choices'][-1]
+            cur['choices'][-1] = (letter, (txt + ' ' + s).strip())
+
+    close_question()
+
+    if not questions:
+        return None
+
+    # --- Parse answer key ----------------------------------------------
+    ans_re = re.compile(
+        r'^\**\s*(\d+)[.)]\s*\**\s*\[?(Easy|Medium|Hard)?\]?\s*\**\s*'
+        r'([A-D])\b\s*[-–—:.]*\s*(.*)$',
+        re.IGNORECASE,
+    )
+    answers = {}
+    cur_a = None
+    for ln in a_lines:
+        s = ln.strip()
+        if not s:
+            continue
+        low = re.sub(r'[^a-z ]', '', s.lower()).strip()
+        if low.startswith('answer key'):
+            continue
+        if s in ('---', '--- PAGE BREAK ---') or s.startswith('#'):
+            continue
+        am = ans_re.match(s)
+        if am:
+            num = int(am.group(1))
+            cur_a = {
+                'num': num,
+                'difficulty': (am.group(2) or '').upper(),
+                'answer': am.group(3).upper(),
+                'explanation': am.group(4).strip(),
+            }
+            answers[num] = cur_a
+        elif cur_a is not None:
+            cur_a['explanation'] = (cur_a['explanation'] + '\n' + s).strip()
+
+    # fill in difficulty from questions where the answer key omitted it
+    q_by_num = {q['num']: q for q in questions}
+    ordered_answers = []
+    for num in sorted(answers):
+        a = answers[num]
+        if not a['difficulty'] and num in q_by_num:
+            a['difficulty'] = q_by_num[num]['difficulty']
+        ordered_answers.append(a)
+
+    return {
+        'subject': subject,
+        'title': title,
+        'questions': questions,
+        'answers': ordered_answers,
+    }
+
+
+def _add_body_figure(cell, img_bytes, first_para):
+    """Add a centered figure image into a question body cell."""
+    p = first_para if first_para is not None else cell.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(4)
+    try:
+        p.add_run().add_picture(io.BytesIO(img_bytes), width=Inches(4.0))
+    except Exception:
+        pass
+    return p
+
+
+def _make_card(doc, badge_text, header_runs, badge_key):
+    """
+    Create a 2-row 'card' table: row0 = [badge | header], row1 = merged body.
+    Returns (table, body_cell). Rows are kept together across page breaks.
+    header_runs: list of (text, bold, size_pt, color_hex_or_None).
+    """
+    tbl = doc.add_table(rows=2, cols=2)
+    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _fixed_layout(tbl, [_BADGE_COL, _BODY_COL])
+    _table_borders(tbl, show=True)
+
+    badge = _BADGE.get(badge_key, _BADGE['EASY'])
+
+    # row 0 – badge cell
+    badge_cell = tbl.cell(0, 0)
+    _shade_cell(badge_cell, badge['fill'])
+    bp = badge_cell.paragraphs[0]
+    bp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    br = bp.add_run(badge_text)
+    br.bold = True
+    br.font.size = Pt(8)
+    br.font.color.rgb = RGBColor.from_string(badge['text'])
+
+    # row 0 – header cell
+    header_cell = tbl.cell(0, 1)
+    hp = header_cell.paragraphs[0]
+    hp.paragraph_format.left_indent = Inches(0.08)
+    for txt, bold, size_pt, color in header_runs:
+        r = hp.add_run(txt)
+        r.bold = bold
+        r.font.size = Pt(size_pt)
+        if color:
+            r.font.color.rgb = RGBColor.from_string(color)
+
+    # keep header row glued to the body row and unsplittable
+    _keep_with_next(bp)
+    _keep_with_next(hp)
+    _row_cant_split(tbl.rows[0])
+
+    # row 1 – merged body cell
+    body_cell = tbl.cell(1, 0).merge(tbl.cell(1, 1))
+    _row_cant_split(tbl.rows[1])
+
+    return tbl, body_cell
+
+
+def build_elite_practice_docx(md_text):
+    """Build the Elite Prep styled .docx (mirrors sample-word-file.docx)."""
+    data = _parse_practice_markdown(md_text)
+    if not data:
+        return None
+
+    questions = data['questions']
+    answers = data['answers']
+    subject = data['subject']
+    title = data['title']
+
+    doc = Document()
+
+    # base style
+    normal = doc.styles['Normal']
+    normal.font.name = 'Arial'
+    normal.font.size = Pt(10.5)
+    normal.font.color.rgb = RGBColor(0x1F, 0x29, 0x37)
+
+    for section in doc.sections:
+        section.top_margin = Inches(0.63)
+        section.bottom_margin = Inches(0.63)
+        section.left_margin = Inches(0.65)
+        section.right_margin = Inches(0.65)
+
+    # ---- difficulty counts -------------------------------------------
+    counts = {'EASY': 0, 'MEDIUM': 0, 'HARD': 0}
+    for q in questions:
+        counts[q['difficulty']] = counts.get(q['difficulty'], 0) + 1
+
+    # short chapter label (e.g. "Ch. 2")
+    chap_short = subject.title()
+    cm = re.search(r'Chapter\s*(\d+)', title, re.IGNORECASE)
+    if cm:
+        chap_short = f"Ch. {cm.group(1)}"
+
+    # ---- 1. Header banner --------------------------------------------
+    head = doc.add_table(rows=1, cols=1)
+    _fixed_layout(head, [_CARD_WIDTH])
+    _table_borders(head, show=False)
+    hcell = head.cell(0, 0)
+    _shade_cell(hcell, _ELITE_NAVY)
+    p = hcell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run('Elite Prep')
+    r.bold = True
+    r.font.size = Pt(24)
+    r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    p2 = hcell.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r2 = p2.add_run(f'SAT {subject} PRACTICE MANUAL')
+    r2.bold = True
+    r2.font.size = Pt(11)
+    r2.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    p3 = hcell.add_paragraph()
+    p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r3 = p3.add_run(clean_text_for_export(title))
+    r3.font.size = Pt(10)
+    r3.font.color.rgb = RGBColor(0xCF, 0xDB, 0xEA)
+    _spacer(doc, 4)
+
+    # ---- 2. Stats bar -------------------------------------------------
+    stats = doc.add_table(rows=1, cols=3)
+    _fixed_layout(stats, [_CARD_WIDTH // 3] * 3)
+    _table_borders(stats, show=False)
+    stat_items = [
+        (str(len(questions)), 'Total Questions'),
+        (f"{counts['EASY']} / {counts['MEDIUM']} / {counts['HARD']}",
+         'Easy / Medium / Hard'),
+        (chap_short, subject.title()),
+    ]
+    for ci, (big, small) in enumerate(stat_items):
+        c = stats.cell(0, ci)
+        _shade_cell(c, _ELITE_LIGHT)
+        bp = c.paragraphs[0]
+        bp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        br = bp.add_run(big)
+        br.bold = True
+        br.font.size = Pt(13)
+        br.font.color.rgb = RGBColor.from_string(_ELITE_NAVY)
+        sp = c.add_paragraph()
+        sp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        sr = sp.add_run(small)
+        sr.font.size = Pt(8)
+    _spacer(doc, 8)
+
+    # ---- 3. Practice Questions section header ------------------------
+    sec = doc.add_table(rows=1, cols=1)
+    _fixed_layout(sec, [_CARD_WIDTH])
+    _table_borders(sec, show=False)
+    scell = sec.cell(0, 0)
+    _shade_cell(scell, _ELITE_NAVY)
+    sp = scell.paragraphs[0]
+    sp.paragraph_format.left_indent = Inches(0.08)
+    sr = sp.add_run('Practice Questions')
+    sr.bold = True
+    sr.font.size = Pt(13)
+    sr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    sp2 = scell.add_paragraph()
+    sp2.paragraph_format.left_indent = Inches(0.08)
+    sr2 = sp2.add_run('Solve each problem, then check your work against the Answer Key.')
+    sr2.font.size = Pt(9)
+    sr2.font.color.rgb = RGBColor(0xCF, 0xDB, 0xEA)
+    _spacer(doc, 6)
+
+    # ---- 4. Question cards -------------------------------------------
+    for q in questions:
+        diff = q['difficulty']
+        _tbl, body = _make_card(
+            doc,
+            badge_text=diff,
+            header_runs=[(f"Question {q['num']}", True, 10.5, _ELITE_NAVY)],
+            badge_key=diff,
+        )
+
+        first = body.paragraphs[0]
+        used_first = False
+
+        if q['figure']:
+            _add_body_figure(body, q['figure'], first)
+            used_first = True
+
+        # question text
+        qp = first if not used_first else body.add_paragraph()
+        used_first = True
+        qp.paragraph_format.space_after = Pt(5)
+        _add_formatted_text(qp, q['text'])
+        _apply_size(qp, 10.5)
+
+        # options
+        for letter, choice in q['choices']:
+            op = body.add_paragraph()
+            op.paragraph_format.left_indent = Inches(0.18)
+            op.paragraph_format.space_before = Pt(1)
+            op.paragraph_format.space_after = Pt(1)
+            lr = op.add_run(f"{letter})  ")
+            lr.bold = True
+            lr.font.color.rgb = RGBColor.from_string(_ELITE_OPTION)
+            _add_formatted_text(op, choice)
+            _apply_size(op, 10)
+
+        _spacer(doc, 6)
+
+    # ---- 5. Answer Key section header --------------------------------
+    if answers:
+        doc.add_page_break()
+        ak = doc.add_table(rows=1, cols=1)
+        _fixed_layout(ak, [_CARD_WIDTH])
+        _table_borders(ak, show=False)
+        akcell = ak.cell(0, 0)
+        _shade_cell(akcell, _ELITE_NAVY)
+        ap = akcell.paragraphs[0]
+        ap.paragraph_format.left_indent = Inches(0.08)
+        ar = ap.add_run('Answer Key & Explanations')
+        ar.bold = True
+        ar.font.size = Pt(13)
+        ar.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        ap2 = akcell.add_paragraph()
+        ap2.paragraph_format.left_indent = Inches(0.08)
+        ar2 = ap2.add_run('Step-by-step reasoning for every question.')
+        ar2.font.size = Pt(9)
+        ar2.font.color.rgb = RGBColor(0xCF, 0xDB, 0xEA)
+        _spacer(doc, 6)
+
+        # ---- 6. Explanation cards ------------------------------------
+        for a in answers:
+            diff = a['difficulty'] or 'EASY'
+            _tbl, body = _make_card(
+                doc,
+                badge_text=diff,
+                header_runs=[
+                    (f"Question {a['num']}  •  Correct Answer: ", True, 10.5, _ELITE_NAVY),
+                    (a['answer'], True, 10.5, _ELITE_ANSWER),
+                ],
+                badge_key=diff,
+            )
+            _shade_cell(body, _ELITE_LIGHT)
+
+            steps = []
+            for s in a['explanation'].split('\n'):
+                # drop leading markdown bullet markers (*, -, +, •) the model
+                # sometimes adds to each explanation step
+                s = re.sub(r'^\s*[\*\-\+•]\s+', '', s)
+                if s.strip():
+                    steps.append(s)
+            if not steps:
+                steps = ['']
+            for si, step in enumerate(steps):
+                ep = body.paragraphs[0] if si == 0 else body.add_paragraph()
+                ep.paragraph_format.space_after = Pt(3)
+                _add_formatted_text(ep, step)
+                _apply_size(ep, 10)
+
+            _spacer(doc, 6)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 # Helper: Convert Markdown to Word (.docx) document
 def convert_markdown_to_docx(md_text):
+    """Elite Prep styled export with a safe fallback to the linear renderer."""
+    if not md_text:
+        return None
+    try:
+        styled = build_elite_practice_docx(md_text)
+        if styled:
+            return styled
+    except Exception as e:
+        print(f"Elite docx build failed, using fallback: {e}")
+    return _convert_markdown_to_docx_linear(md_text)
+
+
+def _convert_markdown_to_docx_linear(md_text):
     if not md_text: return None
-    
+
     doc = Document()
     
     # Set default font for Normal style

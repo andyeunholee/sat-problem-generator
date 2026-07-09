@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import re
 import io
+import time
 import random
 import base64
 from dotenv import load_dotenv
@@ -136,33 +137,54 @@ def get_gemini_response(input_prompt, content_parts, temperature=0.2):
                 return None
         
         genai.configure(api_key=api_key)
-        
+
         model = genai.GenerativeModel('gemini-2.5-pro')
 
         full_payload = [input_prompt] + content_parts
 
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
-            max_output_tokens=8192,
+            max_output_tokens=32768,
         )
 
-        response = model.generate_content(
-            full_payload,
-            generation_config=generation_config,
-            request_options={"timeout": 300},
-        )
-        
-        # Safe access to text
-        try:
-            return response.text
-        except ValueError:
-            # Handle cases where response is blocked or empty
-            finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
-            st.error(f"Generation stopped. Finish Reason: {finish_reason}")
-            # If MAX_TOKENS (2), try to return what we have
-            if finish_reason == 2 and response.candidates and response.candidates[0].content.parts:
-                return response.candidates[0].content.parts[0].text
-            return None
+        # Retry on transient errors (e.g. 504 timeout / 503 overloaded).
+        # These are usually temporary, so we automatically retry a few times
+        # instead of forcing the user to press the button again.
+        max_retries = 3
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content(
+                    full_payload,
+                    generation_config=generation_config,
+                    request_options={"timeout": 600},
+                )
+
+                # Safe access to text
+                try:
+                    return response.text
+                except ValueError:
+                    # Handle cases where response is blocked or empty
+                    finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
+                    st.error(f"Generation stopped. Finish Reason: {finish_reason}")
+                    # If MAX_TOKENS (2), try to return what we have
+                    if finish_reason == 2 and response.candidates and response.candidates[0].content.parts:
+                        return response.candidates[0].content.parts[0].text
+                    return None
+            except Exception as e:
+                last_error = e
+                msg = str(e)
+                # Only retry transient/timeout errors; fail fast on others.
+                is_transient = any(code in msg for code in ("504", "503", "500", "timed out", "timeout", "deadline"))
+                if is_transient and attempt < max_retries - 1:
+                    wait = 3 * (attempt + 1)
+                    st.warning(f"⏳ Request timed out (attempt {attempt + 1}/{max_retries}). Retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                raise
+
+        # All retries exhausted
+        raise last_error
     except Exception as e:
         st.error(f"Error calling Gemini API: {str(e)}")
         return None

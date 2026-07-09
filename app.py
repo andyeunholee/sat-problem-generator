@@ -890,7 +890,15 @@ with col_m:
 
             **INSTRUCTIONS:**
             - Mimic the exact difficulty and style of the "Elite Prep Textbooks".
-            - Use LaTeX for all math equations.
+
+            **LATEX FORMATTING RULES (CRITICAL — FOLLOW EXACTLY TO AVOID BROKEN RENDERING):**
+            - Wrap EVERY mathematical expression in single dollar signs for inline math: $...$ (e.g. $P(A) = \\frac{{18}}{{30}}$, $r = \\sqrt{{121}} = 11$).
+            - NEVER put plain English words or full sentences inside $...$. Dollar signs are ONLY for math symbols, variables, numbers-in-formulas, and equations.
+            - Write explanatory sentences as normal text OUTSIDE any $...$. Example (CORRECT): Let $A$ be the event that the token is blue. So $P(A) = \\frac{{18}}{{30}}$.
+            - Example (WRONG — do NOT do this): $Let A be the event that the token is blue. P(A) = \\frac{{18}}{{30}}$
+            - Every opening $ MUST have a matching closing $ on the SAME line. Count them — they must be balanced (even number per line).
+            - Do NOT use a stray/standalone $ character anywhere. Do NOT use asterisks (*) as separators between sentences.
+            - Keep each inline math span short: wrap one expression at a time, not a whole paragraph.
 
             **FIGURE/GRAPH INSTRUCTIONS (CRITICAL - MUST INCLUDE):**
             - Include **2-3 questions** that require a graph, chart, or geometric figure.
@@ -947,6 +955,12 @@ with col_e:
 
                 **INSTRUCTIONS:**
                 - Mimic the exact passage length and question style of the "Elite Prep Textbooks" / DSAT.
+
+                **LATEX FORMATTING RULES (CRITICAL — FOLLOW EXACTLY TO AVOID BROKEN RENDERING):**
+                - Wrap EVERY mathematical expression in single dollar signs for inline math: $...$ (e.g. $\\frac{{18}}{{30}}$).
+                - NEVER put plain English words or full sentences inside $...$. Dollar signs are ONLY for math symbols, variables, numbers-in-formulas, and equations.
+                - Every opening $ MUST have a matching closing $ on the SAME line (even number of $ per line).
+                - Do NOT use a stray/standalone $ character. Do NOT use asterisks (*) as separators between sentences.
 
                 **FIGURE/GRAPH INSTRUCTIONS:**
                 - If the topic involves data interpretation or informational graphics, include 2-3 questions with figures.

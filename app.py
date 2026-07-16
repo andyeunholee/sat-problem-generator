@@ -525,10 +525,13 @@ _ELITE_LIGHT  = 'F2F5FA'   # light panel background
 _ELITE_BORDER = 'D7E0EC'   # subtle card border
 _ELITE_OPTION = '1E4E86'   # option letter blue
 _ELITE_ANSWER = '2E6DB4'   # answer letter blue
+# Difficulty badges: pale tint + dark text of the same hue. The colour still
+# separates Easy/Medium/Hard at a glance, but a saturated fill with white text
+# would lay down far more toner.
 _BADGE = {
-    'EASY':   {'fill': '2E6DB4', 'text': 'FFFFFF'},
-    'MEDIUM': {'fill': 'FFCE3A', 'text': '14315B'},
-    'HARD':   {'fill': 'E74C3C', 'text': 'FFFFFF'},
+    'EASY':   {'fill': 'DCE9F7', 'text': '1B4F8A'},
+    'MEDIUM': {'fill': 'FFF1C9', 'text': '7A5200'},
+    'HARD':   {'fill': 'FBDDD9', 'text': 'A32A1C'},
 }
 _CARD_WIDTH  = 10360   # twips (~7.19")
 _BADGE_COL   = 1100    # twips (~0.76")

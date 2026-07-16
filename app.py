@@ -518,7 +518,9 @@ def _latex_to_readable(text):
 # ---------------------------------------------------------------------------
 
 # Brand palette (hex, no leading #)
-_ELITE_NAVY   = '14315B'   # dark navy header background
+_ELITE_NAVY   = '14315B'   # navy — used for headings/text (not as a fill:
+                           # solid dark banners burn printer toner)
+_ELITE_MUTED  = '5A6B80'   # muted gray-blue for subtitles
 _ELITE_LIGHT  = 'F2F5FA'   # light panel background
 _ELITE_BORDER = 'D7E0EC'   # subtle card border
 _ELITE_OPTION = '1E4E86'   # option letter blue
@@ -567,6 +569,32 @@ def _table_borders(table, color=_ELITE_BORDER, show=True):
         if show:
             el.set(qn('w:val'), 'single')
             el.set(qn('w:sz'), '4')
+            el.set(qn('w:space'), '0')
+            el.set(qn('w:color'), color)
+        else:
+            el.set(qn('w:val'), 'none')
+            el.set(qn('w:sz'), '0')
+            el.set(qn('w:color'), 'auto')
+        borders.append(el)
+    tblPr.append(borders)
+
+
+def _table_bottom_rule(table, color=_ELITE_NAVY, sz='12'):
+    """
+    Draw only a bottom rule under a table (no fill, no other edges).
+    Used instead of a solid dark banner so headings stay legible without
+    covering the page in toner-hungry ink.
+    """
+    tblPr = table._tbl.tblPr
+    existing = tblPr.find(qn('w:tblBorders'))
+    if existing is not None:
+        tblPr.remove(existing)
+    borders = OxmlElement('w:tblBorders')
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        el = OxmlElement(f'w:{edge}')
+        if edge == 'bottom':
+            el.set(qn('w:val'), 'single')
+            el.set(qn('w:sz'), sz)        # eighths of a point
             el.set(qn('w:space'), '0')
             el.set(qn('w:color'), color)
         else:
@@ -938,28 +966,28 @@ def build_elite_practice_docx(md_text):
         chap_short = f"Ch. {cm.group(1)}"
 
     # ---- 1. Header banner --------------------------------------------
+    # Printer-friendly: no dark fill, navy text on white with a rule under it.
     head = doc.add_table(rows=1, cols=1)
     _fixed_layout(head, [_CARD_WIDTH])
-    _table_borders(head, show=False)
+    _table_bottom_rule(head, _ELITE_NAVY, '12')
     hcell = head.cell(0, 0)
-    _shade_cell(hcell, _ELITE_NAVY)
     p = hcell.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run('Elite Prep')
     r.bold = True
     r.font.size = Pt(24)
-    r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    r.font.color.rgb = RGBColor.from_string(_ELITE_NAVY)
     p2 = hcell.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r2 = p2.add_run(f'SAT {subject} PRACTICE MANUAL')
     r2.bold = True
     r2.font.size = Pt(11)
-    r2.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    r2.font.color.rgb = RGBColor.from_string(_ELITE_ANSWER)
     p3 = hcell.add_paragraph()
     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r3 = p3.add_run(clean_text_for_export(title))
     r3.font.size = Pt(10)
-    r3.font.color.rgb = RGBColor(0xCF, 0xDB, 0xEA)
+    r3.font.color.rgb = RGBColor.from_string(_ELITE_MUTED)
     _spacer(doc, 4)
 
     # ---- 2. Stats bar -------------------------------------------------
@@ -990,20 +1018,19 @@ def build_elite_practice_docx(md_text):
     # ---- 3. Practice Questions section header ------------------------
     sec = doc.add_table(rows=1, cols=1)
     _fixed_layout(sec, [_CARD_WIDTH])
-    _table_borders(sec, show=False)
+    _table_bottom_rule(sec, _ELITE_NAVY, '8')
     scell = sec.cell(0, 0)
-    _shade_cell(scell, _ELITE_NAVY)
     sp = scell.paragraphs[0]
     sp.paragraph_format.left_indent = Inches(0.08)
     sr = sp.add_run('Practice Questions')
     sr.bold = True
     sr.font.size = Pt(13)
-    sr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    sr.font.color.rgb = RGBColor.from_string(_ELITE_NAVY)
     sp2 = scell.add_paragraph()
     sp2.paragraph_format.left_indent = Inches(0.08)
     sr2 = sp2.add_run('Solve each problem, then check your work against the Answer Key.')
     sr2.font.size = Pt(9)
-    sr2.font.color.rgb = RGBColor(0xCF, 0xDB, 0xEA)
+    sr2.font.color.rgb = RGBColor.from_string(_ELITE_MUTED)
     _spacer(doc, 6)
 
     # ---- 4. Question cards -------------------------------------------
@@ -1049,20 +1076,19 @@ def build_elite_practice_docx(md_text):
         doc.add_page_break()
         ak = doc.add_table(rows=1, cols=1)
         _fixed_layout(ak, [_CARD_WIDTH])
-        _table_borders(ak, show=False)
+        _table_bottom_rule(ak, _ELITE_NAVY, '8')
         akcell = ak.cell(0, 0)
-        _shade_cell(akcell, _ELITE_NAVY)
         ap = akcell.paragraphs[0]
         ap.paragraph_format.left_indent = Inches(0.08)
         ar = ap.add_run('Answer Key & Explanations')
         ar.bold = True
         ar.font.size = Pt(13)
-        ar.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        ar.font.color.rgb = RGBColor.from_string(_ELITE_NAVY)
         ap2 = akcell.add_paragraph()
         ap2.paragraph_format.left_indent = Inches(0.08)
         ar2 = ap2.add_run('Step-by-step reasoning for every question.')
         ar2.font.size = Pt(9)
-        ar2.font.color.rgb = RGBColor(0xCF, 0xDB, 0xEA)
+        ar2.font.color.rgb = RGBColor.from_string(_ELITE_MUTED)
         _spacer(doc, 6)
 
         # ---- 6. Explanation cards ------------------------------------

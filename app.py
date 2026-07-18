@@ -1568,6 +1568,83 @@ english_topics = [
     "Chapter 19: Rhetorical Synthesis", "Chapter 20: Cross-Text Connections", "Chapter 21: Punctuation"
 ]
 
+# Lesson subsections per English chapter (from the textbook table of contents).
+# When a chapter has entries here, the user can narrow generation to a single
+# subsection instead of the whole chapter. "Problem Set" items are exercise
+# sets, not lesson concepts, so they are intentionally excluded.
+english_subtopics = {
+    "Chapter 2: Central Ideas": [
+        "2.1 Identifying the Main Idea", "2.2 Identifying Wrong Answers",
+        "2.3 Question Prompts for Main Idea Questions", "2.4 Opening Information",
+    ],
+    "Chapter 3: Parts of Speech": [
+        "3.1 Noun", "3.2 Verb", "3.3 Adjective", "3.4 Adverb", "3.5 Preposition",
+        "3.6 Article", "3.7 Pronoun", "3.8 Conjunction", "3.9 Interjection",
+    ],
+    "Chapter 4: Phrases": [
+        "4.1 Noun Phrases", "4.2 Adjective Phrases", "4.3 Prepositional Phrases",
+        "4.4 Other Phrase Types",
+    ],
+    "Chapter 5: Active Reading": [
+        "5.1 Becoming an Active Reader", "5.2 Contrast Words", "5.3 Absolutes",
+    ],
+    "Chapter 6: Clauses": [
+        "6.1 Subordinating Conjunctions (Subordinators)", "6.2 Relative Clauses",
+    ],
+    "Chapter 7: Appositives": [
+        "7.1 Trailing Appositives",
+    ],
+    "Chapter 8: Command of Evidence (Textual)": [
+        "8.1 Science Texts", "8.2 Fiction and Poetry Texts",
+    ],
+    "Chapter 9: Subject-Verb Agreement": [
+        "9.1 The Basic Rule", "9.2 And", "9.3 Or (and Nor)", "9.4 Expletives",
+        "9.5 Collective Nouns", "9.6 Relative Pronouns", "9.7 Physics and Statistics",
+        "9.8 Parentheticals and Pseudo-Conjunctions", "9.9 Either and Neither",
+    ],
+    "Chapter 10: Inferences": [
+        "10.1 Identifying Inferences Questions", "10.2 Breaking Down a Text: Science",
+        "10.3 Breaking Down a Text: Humanities",
+        "10.4 Where to Find Questions on Inferences",
+    ],
+    "Chapter 11: Verb Tense and Time Reference": [
+        "11.1 Tense", "11.2 Switching Tenses", "11.3 The Perfect",
+    ],
+    "Chapter 12: Words in Context": [
+        "12.1 Why is Vocabulary Important?", "12.2 How to Study Vocabulary",
+        "12.3 Types of Questions",
+    ],
+    "Chapter 13: Possessive Nouns and Possessive Determiners": [
+        "13.1 Possessive Nouns", "13.2 Possessive Determiners",
+    ],
+    "Chapter 15: Modifier Placement": [
+        "15.1 Dangling Modifiers", "15.2 Modifiers Generally",
+    ],
+    "Chapter 16: Text Structure and Purpose": [
+        "16.1 For the Whole Text", "16.2 For Parts of the Text",
+    ],
+    "Chapter 17: Transitions": [
+        "17.1 ACCES: Addition", "17.2 ACCES: Contrast", "17.3 ACCES: Causal",
+        "17.4 ACCES: Example", "17.5 ACCES: Sequence (Time)",
+    ],
+    "Chapter 18: Informational Graphics": [
+        "18.1 No Calculations", "18.2 Subjective Words", "18.3 Question Prompts",
+        "18.4 Unjustifiable Conclusions", "18.5 Graphic Type: Tables",
+        "18.6 Graphic Types: Line Graphs", "18.7 Graphic Types: Bar Graphs",
+    ],
+    "Chapter 19: Rhetorical Synthesis": [
+        "19.1 The Questions",
+    ],
+    "Chapter 20: Cross-Text Connections": [
+        "20.1 Question Prompts",
+    ],
+    "Chapter 21: Punctuation": [
+        "21.1 The Period", "21.2 The Semicolon", "21.3 The Colon",
+        "21.4 The Apostrophe", "21.5 The Comma", "21.6 Parentheses",
+        "21.7 Hyphens and Dashes",
+    ],
+}
+
 # Pre-load topics if not present
 if not st.session_state.all_topics:
     st.session_state.all_topics = {
@@ -1670,15 +1747,57 @@ with col_e:
     st.subheader("📘 English Topics")
     eng_list = st.session_state.all_topics.get("English", english_topics) # Fallback to hardcoded
     selected_eng = st.selectbox("Select English Topic", ["-- Select --"] + eng_list)
+
+    # Optional lesson sub-topic (subsection) — only for chapters that have them.
+    WHOLE_CHAPTER = "-- Whole Chapter --"
+    sub_options = english_subtopics.get(selected_eng, [])
+    selected_sub = WHOLE_CHAPTER
+    if sub_options:
+        selected_sub = st.selectbox(
+            "Select Sub-topic (optional)",
+            [WHOLE_CHAPTER] + sub_options,
+            key="eng_subtopic",
+        )
+    elif selected_eng != "-- Select --":
+        st.caption("No sub-topics listed for this chapter yet — questions will cover the whole chapter.")
+
+    use_sub = bool(sub_options) and selected_sub != WHOLE_CHAPTER
+    # ASCII hyphen (not em dash) so the title survives latin-1 export cleanly.
+    eng_topic = f"{selected_eng} - {selected_sub}" if use_sub else selected_eng
+
     if st.button("Generate English Questions", disabled=(selected_eng=="-- Select --" or total_count == 0)):
-            with st.spinner(f"Generating {total_count} English Questions for {selected_eng}..."):
+            with st.spinner(f"Generating {total_count} English Questions for {eng_topic}..."):
                 res_status, context_parts, _ = load_local_resources()
                 variation_id = random.randint(1000, 9999)
+
+                # When a sub-topic is chosen, focus every question on that one
+                # subsection; otherwise keep the broad whole-chapter coverage.
+                if use_sub:
+                    topic_line = (
+                        f"Create **{total_count} SAT English Practice Questions** that focus "
+                        f"specifically on the sub-topic **'{selected_sub}'**, which is a subsection "
+                        f"of **'{selected_eng}'**."
+                    )
+                    subtopic_focus = f"""
+                **SUB-TOPIC FOCUS (CRITICAL):**
+                - EVERY question MUST test the specific skill of the sub-topic '{selected_sub}'.
+                - Do NOT drift into other subsections of '{selected_eng}'. Keep the tested concept fixed on '{selected_sub}'.
+                - Vary the passage contexts and sentence content, but the grammar/skill point being tested must stay '{selected_sub}'.
+"""
+                    diversity_line = (
+                        f"- All questions test the SAME concept ('{selected_sub}'), but each must use a "
+                        f"DIFFERENT passage context, genre, and sentence content."
+                    )
+                else:
+                    topic_line = f"Create **{total_count} SAT English Practice Questions** for the topic: **'{selected_eng}'**."
+                    subtopic_focus = ""
+                    diversity_line = "- Each question MUST test a DIFFERENT sub-skill or concept within this topic."
+
                 prompt = f"""
-                Create **{total_count} SAT English Practice Questions** for the topic: **'{selected_eng}'**.
+                {topic_line}
 
                 **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
-
+                {subtopic_focus}
                 **DIFFICULTY DISTRIBUTION (CRITICAL — MUST FOLLOW EXACTLY):**
                 - Generate EXACTLY {easy_count} [Easy] questions, {med_count} [Medium] questions, and {hard_count} [Hard] questions.
                 - Every single question MUST begin with its difficulty label in brackets: [Easy], [Medium], or [Hard].
@@ -1686,7 +1805,7 @@ with col_e:
                 - Do NOT skip or omit the difficulty label on any question.
 
                 **DIVERSITY RULES (CRITICAL):**
-                - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
+                {diversity_line}
                 - Use DIFFERENT passage topics, genres, and writing styles (science, humanities, social science, literature).
                 - Vary sentence complexity and vocabulary level across questions.
                 - Do NOT repeat passage themes or question patterns from any previous generation.
@@ -1725,7 +1844,7 @@ with col_e:
                 """
                 res = get_gemini_response(prompt, context_parts, temperature=0.85)
                 if res:
-                    st.session_state.manual_practice_result = f"### 📘 Manual Set: {selected_eng}\n\n" + res
+                    st.session_state.manual_practice_result = f"### 📘 Manual Set: {eng_topic}\n\n" + res
 
 # Display Result
 if st.session_state.manual_practice_result:

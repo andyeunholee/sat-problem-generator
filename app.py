@@ -1559,6 +1559,108 @@ math_topics = [
     "Chapter 38: Composite Functions", "Chapter 39: Linear and Exponential Models", "Chapter 40: Equivalent Expressions"
 ]
 
+# Lesson subsections per Math chapter (from the textbook table of contents).
+# Chapters that only contain a Problem Set (no numbered subsections) are
+# omitted and generate at the whole-chapter level.
+math_subtopics = {
+    "Chapter 2: Solving Linear Equations": [
+        "2.1 Plugging In Answers",
+    ],
+    "Chapter 3: Systems of Linear Equations": [
+        "3.1 Finding the Solutions", "3.2 Solving for Unusual Quantities",
+        "3.3 The Number of Solutions",
+    ],
+    "Chapter 6: Graphs of Lines": [
+        "6.1 Equations", "6.2 Slope",
+    ],
+    "Chapter 7: Linear Models": [
+        "7.1 Working without an equation", "7.2 Using a given equation",
+    ],
+    "Chapter 8: Linear Inequalities": [
+        "8.1 Linear Inequality Basics", "8.2 Linear Inequalities in Word Problems",
+        "8.3 Pairs of Inequalities", "8.4 Inequalities in the Plane",
+    ],
+    "Chapter 9: Absolute Value": [
+        "9.1 Absolute Value is Nonnegative", "9.2 Graphs of Absolute Values",
+        "9.3 Solving Absolute-value Equations", "9.4 Absolute Values as Inequalities",
+    ],
+    "Chapter 10: Ratios": [
+        "10.1 Parts of a Whole", "10.2 Direct Proportions", "10.3 Scales",
+    ],
+    "Chapter 12: Percentages": [
+        "12.1 Translating Percentage Word Problems", "12.2 Percentages in Context",
+    ],
+    "Chapter 13: Percent Change": [
+        "13.1 Absolute vs. Percent Change", "13.2 Calculating Percent Change",
+    ],
+    "Chapter 15: Lines and Angles": [
+        "15.1 Triangles", "15.2 Angles of Intersecting Lines",
+    ],
+    "Chapter 16: Similar Triangles": [
+        "16.1 Establishing Similarity", "16.2 Similarity in Right Triangles",
+    ],
+    "Chapter 17: Measures of Center": [
+        "17.1 Mean", "17.2 Median", "17.3 Mode", "17.4 When the Average is Given",
+    ],
+    "Chapter 18: Measures of Spread": [
+        "18.1 Range", "18.2 Standard Deviation", "18.3 Why Spread Matters",
+    ],
+    "Chapter 21: Time-Series Graphs": [
+        "21.1 Calculations with Data Points", "21.2 Interpreting Graphs in Context",
+    ],
+    "Chapter 23: Scatterplots": [
+        "23.1 Best Fit",
+    ],
+    "Chapter 25: Statistical Claims": [
+        "25.1 Population and Sample", "25.2 Flaws in Surveys", "25.3 The Right Conclusions",
+    ],
+    "Chapter 26: Right Triangles": [
+        "26.1 Pythagorean Theorem", "26.2 Angles of Measures 30, 45, and 60 Degrees",
+    ],
+    "Chapter 27: Trigonometry": [
+        "27.1 SohCahToa", "27.2 Complementary Angles", "27.3 The Unit Circle",
+    ],
+    "Chapter 28: Area and Volume": [
+        "28.1 Area of a Circle", "28.2 Areas of Rectangles and Triangles",
+        "28.3 Volume of a Sphere", "28.4 Volume of a Rectangular Solid",
+        "28.5 Volumes of Cylinders", "28.6 Pyramids and Cones",
+    ],
+    "Chapter 29: Circles": [
+        "29.1 Parts of a Circle", "29.2 Circumference and Arc Length of a Circle",
+        "29.3 Area of a Sector of a Circle", "29.4 Tangents to Circles",
+    ],
+    "Chapter 32: Quadratic Equations": [
+        "32.1 FOILing", "32.2 Two Important Factorizations",
+        "32.3 Solving with Differences of Squares", "32.4 Simplifying Square Roots",
+        "32.5 The Quadratic Formula", "32.6 A Shortcut", "32.7 Quadratics in the Plane",
+    ],
+    "Chapter 33: Rational Functions": [
+        "33.1 Undefined Terms", "33.2 Solving Equations with Rational Expressions",
+    ],
+    "Chapter 34: Exponents and Radicals": [
+        "34.1 Exponent Rules", "34.2 Solving Radical Equations",
+    ],
+    "Chapter 35: Polynomials": [
+        "35.1 Definition of a Polynomial", "35.2 Addition and Subtraction of Polynomials",
+        "35.3 Multiplication of Monomials",
+        "35.4 Multiplication of Polynomials: The Distributive Property",
+        "35.5 Roots", "35.6 Factors", "35.7 Remainders", "35.8 Factoring Cubics",
+    ],
+    "Chapter 36: Graphs of Functions": [
+        "36.1 Values of Functions", "36.2 Zeros on Graphs of Polynomials", "36.3 Signs",
+    ],
+    "Chapter 37: Nonlinear Equations in Context": [
+        "37.1 Quadratics", "37.2 Other Equations",
+    ],
+    "Chapter 39: Linear and Exponential Models": [
+        "39.1 Distinguishing Linear from Exponential",
+    ],
+    "Chapter 40: Equivalent Expressions": [
+        "40.1 Equivalent Quadratics", "40.2 Differences of Squares and Perfect Squares",
+        "40.3 Polynomials: Like Terms", "40.4 Solving for a Particular Variable",
+    ],
+}
+
 english_topics = [
     "Chapter 2: Central Ideas", "Chapter 3: Parts of Speech", "Chapter 4: Phrases", "Chapter 5: Active Reading",
     "Chapter 6: Clauses", "Chapter 7: Appositives", "Chapter 8: Command of Evidence (Textual)", "Chapter 9: Subject-Verb Agreement",
@@ -1676,21 +1778,63 @@ else:
 st.markdown("---")
 
 # 3. Selection & Generation
+WHOLE_CHAPTER = "-- Whole Chapter --"
 col_m, col_e = st.columns(2)
 
 with col_m:
     st.subheader("📐 Math Topics")
     math_list = st.session_state.all_topics.get("Math", math_topics) # Fallback to hardcoded
     selected_math = st.selectbox("Select Math Topic", ["-- Select --"] + math_list)
+
+    # Optional lesson sub-topic (subsection) — only for chapters that have them.
+    math_sub_options = math_subtopics.get(selected_math, [])
+    selected_math_sub = WHOLE_CHAPTER
+    if math_sub_options:
+        selected_math_sub = st.selectbox(
+            "Select Sub-topic (optional)",
+            [WHOLE_CHAPTER] + math_sub_options,
+            key="math_subtopic",
+        )
+    elif selected_math != "-- Select --":
+        st.caption("No sub-topics listed for this chapter yet — questions will cover the whole chapter.")
+
+    math_use_sub = bool(math_sub_options) and selected_math_sub != WHOLE_CHAPTER
+    # ASCII hyphen (not em dash) so the title survives latin-1 export cleanly.
+    math_topic = f"{selected_math} - {selected_math_sub}" if math_use_sub else selected_math
+
     if st.button("Generate Math Questions", disabled=(selected_math=="-- Select --" or total_count == 0)):
-        with st.spinner(f"Generating {total_count} Math Questions for {selected_math}..."):
+        with st.spinner(f"Generating {total_count} Math Questions for {math_topic}..."):
             res_status, context_parts, _ = load_local_resources()
             variation_id = random.randint(1000, 9999)
+
+            # When a sub-topic is chosen, focus every question on that one
+            # subsection; otherwise keep the broad whole-chapter coverage.
+            if math_use_sub:
+                math_topic_line = (
+                    f"Create **{total_count} SAT Math Practice Questions** that focus "
+                    f"specifically on the sub-topic **'{selected_math_sub}'**, which is a subsection "
+                    f"of **'{selected_math}'**."
+                )
+                math_subtopic_focus = f"""
+            **SUB-TOPIC FOCUS (CRITICAL):**
+            - EVERY question MUST test the specific skill of the sub-topic '{selected_math_sub}'.
+            - Do NOT drift into other subsections of '{selected_math}'. Keep the tested concept fixed on '{selected_math_sub}'.
+            - Vary the numbers and scenarios, but the math skill being tested must stay '{selected_math_sub}'.
+"""
+                math_diversity_line = (
+                    f"- All questions test the SAME concept ('{selected_math_sub}'), but each must use "
+                    f"DIFFERENT numbers, coefficients, and problem scenarios."
+                )
+            else:
+                math_topic_line = f"Create **{total_count} SAT Math Practice Questions** for the topic: **'{selected_math}'**."
+                math_subtopic_focus = ""
+                math_diversity_line = "- Each question MUST test a DIFFERENT sub-skill or concept within this topic."
+
             prompt = f"""
-            Create **{total_count} SAT Math Practice Questions** for the topic: **'{selected_math}'**.
+            {math_topic_line}
 
             **Variation Seed: {variation_id}** — Use this seed to ensure COMPLETELY UNIQUE questions.
-
+            {math_subtopic_focus}
             **DIFFICULTY DISTRIBUTION (CRITICAL — MUST FOLLOW EXACTLY):**
             - Generate EXACTLY {easy_count} [Easy] questions, {med_count} [Medium] questions, and {hard_count} [Hard] questions.
             - Every single question MUST begin with its difficulty label in brackets: [Easy], [Medium], or [Hard].
@@ -1698,7 +1842,7 @@ with col_m:
             - Do NOT skip or omit the difficulty label on any question.
 
             **DIVERSITY RULES (CRITICAL):**
-            - Each question MUST test a DIFFERENT sub-skill or concept within this topic.
+            {math_diversity_line}
             - Use DIFFERENT numbers, coefficients, and constants than typical textbook examples.
             - Mix word problems, pure algebra, graph-based, and real-world application scenarios.
             - Do NOT repeat question patterns from any previous generation.
@@ -1741,7 +1885,7 @@ with col_m:
             """
             res = get_gemini_response(prompt, context_parts, temperature=0.85)
             if res:
-                st.session_state.manual_practice_result = f"### 📐 Manual Set: {selected_math}\n\n" + res
+                st.session_state.manual_practice_result = f"### 📐 Manual Set: {math_topic}\n\n" + res
 
 with col_e:
     st.subheader("📘 English Topics")
@@ -1749,7 +1893,6 @@ with col_e:
     selected_eng = st.selectbox("Select English Topic", ["-- Select --"] + eng_list)
 
     # Optional lesson sub-topic (subsection) — only for chapters that have them.
-    WHOLE_CHAPTER = "-- Whole Chapter --"
     sub_options = english_subtopics.get(selected_eng, [])
     selected_sub = WHOLE_CHAPTER
     if sub_options:
